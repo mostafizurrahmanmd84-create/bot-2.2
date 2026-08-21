@@ -21,17 +21,28 @@ const getSearchTerms = (query) => normalizeQuery(query).replace(/[’']s\b/g, ''
 export const searchGoogleSheet = (query, rows = []) => {
   const normalizedQuery = normalizeQuery(query);
   if (!normalizedQuery) return [];
+  
   const searchTerms = getSearchTerms(normalizedQuery);
-  const fieldMatch = normalizedQuery.match(/^([a-z]+)\s+(.+)$/);
-  const fieldName = fieldMatch && rows.some((row) => row && typeof row === 'object' && Object.keys(row).some((key) => normalizeQuery(key) === fieldMatch[1])) ? fieldMatch[1] : '';
-  if (fieldName) return rows.filter((row) => row && Object.entries(row).some(([key, value]) => normalizeQuery(key) === fieldName && normalizeQuery(normalizeCellValue(value)).includes(fieldMatch[2]))).slice(0, 20);
+
   return rows.map((row, index) => {
     if (!row || typeof row !== 'object') return null;
+    
+    // সারির সব ভ্যালুকে একসাথে normalised করে খোঁজা
     const values = Object.values(row).map((value) => normalizeQuery(normalizeCellValue(value)));
-    const exactMatch = values.some((value) => value.includes(normalizedQuery));
-    const score = exactMatch ? searchTerms.length + 1 : searchTerms.reduce((total, term) => total + (values.some((value) => value.includes(term)) ? 1 : 0), 0);
+    const keys = Object.keys(row).map((key) => normalizeQuery(key));
+
+    // পুরো কুয়েরি মিলে যায় কিনা অথবা সার্চ টার্মগুলোর সাথে ম্যাচ করে কিনা
+    const exactMatch = values.some((value) => value.includes(normalizedQuery)) || 
+                       keys.some((key, i) => normalizedQuery.includes(key) && values[i]?.includes(normalizedQuery.replace(key, '').trim()));
+
+    const score = exactMatch ? searchTerms.length + 2 : searchTerms.reduce((total, term) => total + (values.some((value) => value.includes(term)) ? 1 : 0), 0);
+    
     return score > 0 ? { row, score, index } : null;
-  }).filter(Boolean).sort((left, right) => right.score - left.score || left.index - right.index).slice(0, 20).map(({ row }) => row);
+  })
+  .filter(Boolean)
+  .sort((left, right) => right.score - left.score || left.index - right.index)
+  .slice(0, 20)
+  .map(({ row }) => row);
 };
 
 const convertSheetRows = (values) => {
